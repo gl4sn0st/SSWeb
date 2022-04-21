@@ -11,6 +11,16 @@ class Http:
         self.target = target
         self.port = port
 
+    def parse_http(self, c, method, headers, body):
+        global http_methods
+        met,path,http_version = method.split(' ')
+        met = met.lower()
+        handlers = {}
+        for h in http_methods:
+            handlers[v] = "handle_%s" % v
+
+
+
     def handle_conn(self, c, addr):
         global http_methods
         print("[*] Connection from: %s:%s" % (addr[0], addr[1]))
@@ -33,10 +43,12 @@ class Http:
             for h in headers:
                 if(re.search('[^\:]+\:\s.*', h) is None):
                    c.send("disallowed requestaa".encode('utf-8'))
+                   c.close()
                 else:
                     self.parse_http(c, method, headers, body) # not implemented yet
         else:
            c.send("disallowed requestbb".encode('utf-8'))
+           c.close()
 
     def deploy_server(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
