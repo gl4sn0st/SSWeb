@@ -1,4 +1,4 @@
-from ssweb import ssweb
+from ssweb import http
 import argparse
 import os
 import json
@@ -8,9 +8,11 @@ cwd = os.getcwd()
 config = '%s/vhosts' % cwd
 daemonize = False
 listens = {}
+routes = []
 
 def parse_configs(confdir):
     global listens
+    global routes
     for c in os.listdir(confdir):
         if(c.endswith('.json')):
             f = open('%s/%s' % (config, c), "r")
@@ -22,7 +24,9 @@ def parse_configs(confdir):
 
             for d in vhost['domains']:
                     listens[vhost['listen']].append(d)
+            routes.append(vhost)
 
+    http.init(listens, routes)
 
 def main():
     global config

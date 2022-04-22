@@ -1,5 +1,5 @@
 {
-	"domains": ["test.lab"],
+	"domains": ["test.lab", "test.lab:8081"],
 	"listen": "0.0.0.0:8081",
 	"routes": [
 		{
