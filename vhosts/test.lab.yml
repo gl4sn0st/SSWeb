@@ -1,0 +1,23 @@
+domains:
+- test.lab
+- test.lab:8081
+listen: 0.0.0.0:8081
+routes:
+- "/":
+    methods:
+    - GET
+    front:
+      file: index.html
+    return:
+      type: html
+      code: 200
+- "/hello/(name)":
+    methods:
+    - GET
+    front:
+      file: hello.html
+      data:
+        your_name: "(name)"
+    return:
+      type: html
+      code: 200

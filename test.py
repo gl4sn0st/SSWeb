@@ -2,6 +2,7 @@ from ssweb import http
 import argparse
 import os
 import json
+import yaml
 
 cwd = os.getcwd()
 
@@ -14,11 +15,11 @@ def parse_configs(confdir):
     global listens
     global routes
     for c in os.listdir(confdir):
-        if(c.endswith('.json')):
+        if(c.endswith('.yml')):
             f = open('%s/%s' % (config, c), "r")
             data = f.read()
             f.close()
-            vhost = json.loads(data)
+            vhost = yaml.safe_load(data)
             if vhost['listen'] not in listens.keys():
                 listens[vhost['listen']] = []
 

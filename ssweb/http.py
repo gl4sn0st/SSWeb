@@ -75,6 +75,19 @@ content_types = {
     'html': 'text/html'
 }
 
+def parse_variables(variables, routes, path):
+    variables_indexes = {}
+    variables_to_replace = {}
+    j = 0
+    for v in k.split('/'):
+        if(re.match('(\([^\)]+\))', v)):
+            variables_indexes[j] = v
+            variables_to_replace[v] = ''
+            k_regex = k.replace(v, '([^\/]+)')
+            j = j + 1
+        k_regex = '^%s$' % k_regex
+
+
 def generate_answer(resp, headers, code):
     global codes
     ans = "HTTP/1.1 %s %s\r\n" % (code, codes[code])
@@ -94,6 +107,7 @@ def parse_http(method, h, body, routes, listen):
     front_file = ""
     code = 0
     content_type = ""
+    data = {}
     method,path,ver = method.split(' ')
     for i in h:
         name, value = i.split(': ')
@@ -102,13 +116,38 @@ def parse_http(method, h, body, routes, listen):
     for r in routes:
         if(vhost in r['domains'] and str(listen) == str(r['listen'])):
             for route in r['routes']:
-                if path in route.keys():
-                    if method in route[path]['methods']:
-                        front_file = route[path]['front']['file']
-                        code = route[path]['return']['code']
-                        content_type = content_types[route[path]['return']['type']]
+                for k in route.keys():
+                    variables = re.findall('(\([^\)]+\))', k)
+                    if len(variables) > 0:
+                        variables_indexes = {}
+                        variables_to_replace = {}
+                        j = 0
+                        for v in k.split('/'):
+                            if(re.match('(\([^\)]+\))', v)):
+                                variables_indexes[j] = v
+                                variables_to_replace[v] = ''
+                                k_regex = k.replace(v, '([^\/]+)')
+                            j = j + 1
+                        k_regex = '^%s$' % k_regex
+                        if re.search(k_regex, path):
+                            path_splitted = path.split('/')
+                            for v in variables_indexes:
+                                variables_to_replace[variables_indexes[v]] = path_splitted[v]
+                            if method in route[k]['methods']:
+                                front_file = route[k]['front']['file']
+                                code = route[k]['return']['code']
+                                content_type = content_types[route[k]['return']['type']]
+                                data = route[k]['front']['data']
+                            else:
+                                return generate_answer('ERROR', [['Content-Type', 'text/plain']], 405)
                     else:
-                        return generate_answer('ERROR', [['Content-Type', 'text/plain']], 405)
+                        if k == path:
+                            if method in route[k]['methods']:
+                                front_file = route[k]['front']['file']
+                                code = route[k]['return']['code']
+                                content_type = content_types[route[k]['return']['type']]
+                            else:
+                                return generate_answer('ERROR', [['Content-Type', 'text/plain']], 405)
 
     if(code == 0 and front_file == ""):
         return generate_answer('ERROR', [['Content-Type', 'text/plain']], 404)
@@ -116,6 +155,11 @@ def parse_http(method, h, body, routes, listen):
         f = open(('/Users/glasn0st/Documents/projects/web/views/%s' % front_file), 'r')
         front_data = f.read()
         f.close()
+        to_replace = {}
+        for d in data:
+            if(data[d] in variables_to_replace.keys()):
+                to_replace[d] = variables_to_replace[data[d]]
+            front_data = front_data.replace(('((%s))' % d), to_replace[d])
         return generate_answer(front_data, [['Content-Type', content_type]], 200)
 
 def handle_conn(c, addr, listen, routes):
@@ -144,9 +188,8 @@ def handle_conn(c, addr, listen, routes):
                 if(re.search('[^\:]+\:\s.*', h) is None):
                    c.send("disallowed requestaa".encode('utf-8'))
                    c.close()
-                else:
-                    c.send(parse_http(method, headers, body, routes, listen))
-                    c.close()
+            c.send(parse_http(method, headers, body, routes, listen))
+            c.close()
         else:
            c.send("disallowed requestbb".encode('utf-8'))
            c.close()
@@ -161,10 +204,12 @@ def http_server(listen, routes):
         client, addr = s.accept()
 
         t = threading.Thread(target=handle_conn, args=(client, addr, listen, routes))
+        print("started thread: %s" % t)
         t.start()
 
 def init(listens, r):
     routes = r
     for l in listens:
         p = Process(target=http_server, args=(l,routes))
+        print("started process: %s" % p)
         p.start()
