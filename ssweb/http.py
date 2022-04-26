@@ -3,77 +3,12 @@ from multiprocessing import Process
 import threading
 import json
 import re
+import mimetypes
+import os
+from .http_helpers import *
 
 http_methods = ['GET', 'POST', 'HEAD', 'PUT', 'DELETE', 'PATCH', 'CONNECT', 'OPTIONS', 'TRACE']
-codes = {
-100: 'Continue',
-101: 'Switching protocols',
-102: 'Processing',
-103: 'Early Hints',
-200: 'OK',
-201: 'Created',
-202: 'Accepted',
-203: 'Non-Authoritative Information',
-204: 'No Content',
-205: 'Reset Content',
-206: 'Partial Content',
-207: 'Multi-Status',
-208: 'Already Reported',
-226: 'IM Used',
-300: 'Multiple Choices',
-301: 'Moved Permanently',
-302: 'Found',
-303: 'See Other',
-304: 'Not Modified',
-305: 'Use Proxy',
-306: 'Switch Proxy',
-307: 'Temporary Redirect',
-308: 'Permanent Redirect',
-400: 'Bad Request',
-401: 'Unauthorized',
-402: 'Payment Required',
-403: 'Forbidden',
-404: 'Not Found',
-405: 'Method Not Allowed',
-406: 'Not Acceptable',
-407: 'Proxy Authentication Required',
-408: 'Request Timeout',
-409: 'Conflict',
-410: 'Gone',
-411: 'Length Required',
-412: 'Precondition Failed',
-413: 'Payload Too Large',
-414: 'URI Too Long',
-415: 'Unsupported Media Type',
-416: 'Range Not Satisfiable',
-417: 'Expectation Failed',
-418: 'I\'m a Teapot',
-421: 'Misdirected Request',
-422: 'Unprocessable Entity',
-423: 'Locked',
-424: 'Failed Dependency',
-425: 'Too Early',
-426: 'Upgrade Required',
-428: 'Precondition Required',
-429: 'Too Many Requests',
-431: 'Request Header Fields Too Large',
-451: 'Unavailable For Legal Reasons',
-500: 'Internal Server Error',
-501: 'Not Implemented',
-502: 'Bad Gateway',
-503: 'Service Unavailable',
-504: 'Gateway Timeout',
-505: 'HTTP Version Not Supported',
-506: 'Variant Also Negotiates',
-507: 'Insufficient Storage',
-508: 'Loop Detected',
-510: 'Not Extended',
-511: 'Network Authentication Required'
-}
-
-content_types = {
-    'html': 'text/html'
-}
+cwd = '/'.join(os.path.realpath(__file__).split('/')[:-2])
 
 def parse_variables(variables, routes, path):
     variables_indexes = {}
@@ -96,6 +31,7 @@ def generate_answer(resp, headers, code):
         ans += "%s: %s\r\n" % (h[0], h[1])
 
     ans += "Content-Length: %s\r\n" % length
+    ans += "Server: SSWeb/0.1\r\n"
     ans += "\r\n"
     ans += resp
     ans += "\n"
@@ -113,6 +49,7 @@ def parse_http(method, h, body, routes, listen):
         name, value = i.split(': ')
         headers[name] = value
     vhost = headers['Host']
+    path_splitted = path.split('/')
     for r in routes:
         if(vhost in r['domains'] and str(listen) == str(r['listen'])):
             for route in r['routes']:
@@ -130,29 +67,40 @@ def parse_http(method, h, body, routes, listen):
                             j = j + 1
                         k_regex = '^%s$' % k_regex
                         if re.search(k_regex, path):
-                            path_splitted = path.split('/')
                             for v in variables_indexes:
                                 variables_to_replace[variables_indexes[v]] = path_splitted[v]
                             if method in route[k]['methods']:
-                                front_file = route[k]['front']['file']
+                                front_file = "%s/views/%s" % (cwd, route[k]['front']['file'])
                                 code = route[k]['return']['code']
                                 content_type = content_types[route[k]['return']['type']]
                                 data = route[k]['front']['data']
                             else:
-                                return generate_answer('ERROR', [['Content-Type', 'text/plain']], 405)
+                                return generate_answer(default_errors[405]['body'], default_errors[405]['headers'], 405)
                     else:
                         if k == path:
                             if method in route[k]['methods']:
-                                front_file = route[k]['front']['file']
+                                front_file = "%s/views/%s" % (cwd, route[k]['front']['file'])
                                 code = route[k]['return']['code']
                                 content_type = content_types[route[k]['return']['type']]
                             else:
-                                return generate_answer('ERROR', [['Content-Type', 'text/plain']], 405)
+                                return generate_answer(default_errors[405]['body'], default_errors[405]['headers'], 405)
+                        elif(len(path_splitted) > 2 and path_splitted[1] == "assets"):
+                            asset_path = '/'.join(path_splitted[2:])
+                            asset_full_path = '%s/assets/%s' % (cwd, asset_path)
+                            if os.path.exists(asset_full_path):
+                                asset_type = mimetypes.guess_type(asset_full_path)
+                                if asset_type is not None:
+                                    content_type = asset_type[0]
+                                else:
+                                    content_type = 'text/plain'
+                                front_file = asset_full_path
+                                code = 200
+
 
     if(code == 0 and front_file == ""):
-        return generate_answer('ERROR', [['Content-Type', 'text/plain']], 404)
+        return generate_answer(default_errors[404]['body'], default_errors[404]['headers'], 404)
     else:
-        f = open(('/Users/glasn0st/Documents/projects/web/views/%s' % front_file), 'r')
+        f = open(front_file, 'r')
         front_data = f.read()
         f.close()
         to_replace = {}
@@ -188,11 +136,14 @@ def handle_conn(c, addr, listen, routes):
                 if(re.search('[^\:]+\:\s.*', h) is None):
                    c.send("disallowed requestaa".encode('utf-8'))
                    c.close()
+                   return 1
             c.send(parse_http(method, headers, body, routes, listen))
             c.close()
+            return 0
         else:
            c.send("disallowed requestbb".encode('utf-8'))
            c.close()
+           return 1
 
 def http_server(listen, routes):
     ip,port = listen.split(':')
