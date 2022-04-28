@@ -1,16 +1,9 @@
+http_empty = '<html>\n<head>\n<title>((title))</title>\n</head>\n<body>\n((body))\n</body>\n</html>\n'
+
 default_errors = {
-    404: {
-        "headers": [
-            ['Content-Type', 'text/html']
-        ],
-        "body": '<html>\n<head>\n<title>404 Not Found</title>\n</head>\n<body>\n<h1>404 - Not found</h1>\n<p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>\n</body>\n</html>\n'
-    },
-    405: {
-        "headers": [
-            ['Content-Type', 'text/html']
-        ],
-        "body": '<html>\n<head>\n<title>405 Method not allowed</title>\n</head>\n<body>\n<h1>405 - Method not allowed</h1>\n<p>The method is not allowed for the requested URL.</p>\n</body>\n</html>\n'
-    }
+    403: http_empty.replace('((title))', '403 Forbidden').replace('((body))', '<h1>403 - Forbidden</h1>'),
+    404: http_empty.replace('((title))', '404 Not Found').replace('((body))', '<h1>404 - Not found</h1>\n<p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>'),
+    405: http_empty.replace('((title))', '405 Method not allowed').replace('((body))', '<h1>405 - Method not allowed</h1>\n<p>The method is not allowed for the requested URL.</p>')
 }
 
 codes = {

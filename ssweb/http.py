@@ -5,7 +5,9 @@ import json
 import re
 import mimetypes
 import os
+import time
 from .http_helpers import *
+from .backend import *
 
 http_methods = ['GET', 'POST', 'HEAD', 'PUT', 'DELETE', 'PATCH', 'CONNECT', 'OPTIONS', 'TRACE']
 cwd = '/'.join(os.path.realpath(__file__).split('/')[:-2])
@@ -27,11 +29,13 @@ def generate_answer(resp, headers, code):
     global codes
     ans = "HTTP/1.1 %s %s\r\n" % (code, codes[code])
     length = len(resp)
+    date = time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.gmtime())
     for h in headers:
         ans += "%s: %s\r\n" % (h[0], h[1])
 
     ans += "Content-Length: %s\r\n" % length
     ans += "Server: SSWeb/0.1\r\n"
+    ans += "Date: %s\r\n" % date
     ans += "\r\n"
     ans += resp
     ans += "\n"
@@ -40,10 +44,12 @@ def generate_answer(resp, headers, code):
 def parse_http(method, h, body, routes, listen):
     global content_types
     headers = {}
+    resp_headers = []
     front_file = ""
     code = 0
     content_type = ""
     data = {}
+    back = ""
     method,path,ver = method.split(' ')
     for i in h:
         name, value = i.split(': ')
@@ -74,41 +80,71 @@ def parse_http(method, h, body, routes, listen):
                                 code = route[k]['return']['code']
                                 content_type = content_types[route[k]['return']['type']]
                                 data = route[k]['front']['data']
+                                if route[k]['back'] is not None:
+                                   back = route[k]['back'] 
                             else:
-                                return generate_answer(default_errors[405]['body'], default_errors[405]['headers'], 405)
+                                return generate_answer(default_errors[405], [['Content-Type', 'text/html']], 405)
                     else:
                         if k == path:
                             if method in route[k]['methods']:
                                 front_file = "%s/views/%s" % (cwd, route[k]['front']['file'])
                                 code = route[k]['return']['code']
                                 content_type = content_types[route[k]['return']['type']]
+                                if route[k]['back'] is not None:
+                                    back = route[k]['back']
                             else:
-                                return generate_answer(default_errors[405]['body'], default_errors[405]['headers'], 405)
+                                return generate_answer(default_errors[405], [['Content-Type', 'text/html']], 405)
                         elif(len(path_splitted) > 2 and path_splitted[1] == "assets"):
                             asset_path = '/'.join(path_splitted[2:])
                             asset_full_path = '%s/assets/%s' % (cwd, asset_path)
                             if os.path.exists(asset_full_path):
+                                ifmodified = "yes"
                                 asset_type = mimetypes.guess_type(asset_full_path)
-                                if asset_type is not None:
-                                    content_type = asset_type[0]
+                                l = os.path.getmtime(asset_full_path)
+                                last_modified = time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.gmtime(l))
+                                if 'If-Modified-Since' in headers.keys():
+                                    ifmodified = headers['If-Modified-Since']
+                                if ifmodified == last_modified:
+                                    front_file = "not modified"
+                                    code = 304
                                 else:
-                                    content_type = 'text/plain'
-                                front_file = asset_full_path
-                                code = 200
+                                    if asset_type is not None:
+                                        content_type = asset_type[0]
+                                    else:
+                                        content_type = 'text/plain'
+                                    resp_headers.append(['Cache-Control', 'max-age=604800, public'])
+                                    resp_headers.append(['Last-Modified', last_modified])
+                                    front_file = asset_full_path
+                                    code = 200
 
 
     if(code == 0 and front_file == ""):
-        return generate_answer(default_errors[404]['body'], default_errors[404]['headers'], 404)
+        return generate_answer(default_errors[404], [['Content-Type', 'text/html']], 404)
     else:
-        f = open(front_file, 'r')
-        front_data = f.read()
-        f.close()
-        to_replace = {}
-        for d in data:
-            if(data[d] in variables_to_replace.keys()):
-                to_replace[d] = variables_to_replace[data[d]]
-            front_data = front_data.replace(('((%s))' % d), to_replace[d])
-        return generate_answer(front_data, [['Content-Type', content_type]], 200)
+        if front_file == "not modified":
+            return generate_answer('', [], code)
+        else:
+
+            if back != "":
+                backend_path = '%s/back/%s' % (cwd, back['file'])
+                back_vars = {}
+                for v in back['vars']:
+                    if back['vars'][v] in variables_to_replace.keys():
+                        back_vars[v] = variables_to_replace[back['vars'][v]]
+                backend_data = run_backend(backend_path, back_vars)
+
+            f = open(front_file, 'r')
+            front_data = f.read()
+            f.close()
+            to_replace = {}
+            for b in backend_data:
+                to_replace[b] = backend_data[b]
+            for d in data:
+                if(data[d] in variables_to_replace.keys()):
+                    to_replace[d] = variables_to_replace[data[d]]
+                front_data = front_data.replace(('((%s))' % d), to_replace[d])
+            resp_headers.append(['Content-Type', content_type])
+            return generate_answer(front_data, resp_headers, 200)
 
 def handle_conn(c, addr, listen, routes):
         global http_methods

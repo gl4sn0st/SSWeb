@@ -14,10 +14,15 @@ routes:
 - "/hello/(name)":
     methods:
     - GET
+    back:
+      file: hello.py
+      vars:
+        name: "(name)"
     front:
       file: hello.html
       data:
         your_name: "(name)"
+        sentence: sentence
     return:
       type: html
       code: 200
